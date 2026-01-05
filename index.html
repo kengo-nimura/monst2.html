@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>反射線シミュレーター Pro</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }
+        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; display: flex; gap: 10px; }
+        canvas { display: block; touch-action: none; cursor: crosshair; }
+        label, .btn { color: white; cursor: pointer; border: 1px solid white; padding: 5px 10px; border-radius: 4px; font-size: 14px; background: rgba(255,255,255,0.1); }
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <label>📷 スクショ選択 <input type="file" id="imgInput" accept="image/*"></label>
+    <div class="btn" id="resetBtn">位置リセット</div>
+</div>
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let img = null;
+
+// シミュレーション状態
+let start = { x: 200, y: 500 }; 
+let target = { x: 250, y: 400 }; 
+let isDraggingStart = false; // 起点を移動中か
+let isDraggingAngle = false; // 角度を調整中か
+
+document.getElementById("imgInput").onchange = e => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const newImg = new Image();
+    newImg.src = URL.createObjectURL(file);
+    newImg.onload = () => {
+        img = newImg;
+        resizeCanvas();
+        start.x = canvas.width / 2;
+        start.y = canvas.height * 0.7;
+        target.x = start.x;
+        target.y = start.y - 100;
+        draw();
+    };
+};
+
+document.getElementById("resetBtn").onclick = () => {
+    if(!img) return;
+    start.x = canvas.width / 2;
+    start.y = canvas.height * 0.7;
+    draw();
+};
+
+function resizeCanvas() {
+    const scale = img ? window.innerHeight / img.height : 1;
+    canvas.width = img ? img.width * scale : window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+window.addEventListener('resize', () => { resizeCanvas(); draw(); });
+
+// 操作ロジック
+const handlePointerDown = (clientX, clientY) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    // 起点（赤い円）に近いか判定
+    const dist = Math.hypot(x - start.x, y - start.y);
+    if (dist < 30) {
+        isDraggingStart = true;
+    } else {
+        isDraggingAngle = true;
+        target.x = x;
+        target.y = y;
+    }
+    draw();
+};
+
+const handlePointerMove = (clientX, clientY) => {
+    if (!isDraggingStart && !isDraggingAngle) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    if (isDraggingStart) {
+        start.x = x;
+        start.y = y;
+    } else {
+        target.x = x;
+        target.y = y;
+    }
+    draw();
+};
+
+// タッチイベント
+canvas.addEventListener("touchstart", e => { handlePointerDown(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, {passive: false});
+canvas.addEventListener("touchmove", e => { handlePointerMove(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, {passive: false});
+canvas.addEventListener("touchend", () => { isDraggingStart = false; isDraggingAngle = false; });
+
+// マウスイベント
+canvas.addEventListener("mousedown", e => handlePointerDown(e.clientX, e.clientY));
+window.addEventListener("mousemove", e => handlePointerMove(e.clientX, e.clientY));
+window.addEventListener("mouseup", () => { isDraggingStart = false; isDraggingAngle = false; });
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    // 反射線の計算
+    let currX = start.x;
+    let currY = start.y;
+    let dx = target.x - start.x;
+    let dy = target.y - start.y;
+
+    // 距離がゼロだと計算できないので微小値を設定
+    if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) dy = -1;
+
+    ctx.strokeStyle = "rgba(255, 0, 0, 0.9)";
+    ctx.lineWidth = 4;
+    ctx.setLineDash([8, 4]); 
+    ctx.beginPath();
+    ctx.moveTo(currX, currY);
+
+    for (let i = 0; i < 8; i++) {
+        let tX = dx > 0 ? (canvas.width - currX) / dx : (0 - currX) / dx;
+        let tY = dy > 0 ? (canvas.height - currY) / dy : (0 - currY) / dy;
+        let t = Math.min(tX, tY);
+
+        currX += dx * t;
+        currY += dy * t;
+        ctx.lineTo(currX, currY);
+
+        if (t === tX) dx = -dx;
+        else dy = -dy;
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 起点の描画
+    ctx.beginPath();
+    ctx.arc(start.x, start.y, 15, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
+    ctx.fill();
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    
+    // 中心点
+    ctx.beginPath();
+    ctx.arc(start.x, start.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "white";
+    ctx.fill();
+}
+
+resizeCanvas();
+draw();
+</script>
+
+</body>
+</html>
