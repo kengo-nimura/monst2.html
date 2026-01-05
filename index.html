@@ -6,9 +6,11 @@
     <title>反射線シミュレーター Pro</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }
-        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; display: flex; gap: 10px; }
+        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.8); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #444; }
+        .row { display: flex; align-items: center; gap: 10px; color: white; font-size: 14px; }
         canvas { display: block; touch-action: none; cursor: crosshair; }
-        label, .btn { color: white; cursor: pointer; border: 1px solid white; padding: 5px 10px; border-radius: 4px; font-size: 14px; background: rgba(255,255,255,0.1); }
+        label, .btn { color: white; cursor: pointer; border: 1px solid white; padding: 5px 10px; border-radius: 4px; font-size: 14px; background: rgba(255,255,255,0.1); text-align: center; }
+        input[type="range"] { cursor: pointer; }
         input[type="file"] { display: none; }
     </style>
 </head>
@@ -16,6 +18,11 @@
 
 <div id="controls">
     <label>📷 スクショ選択 <input type="file" id="imgInput" accept="image/*"></label>
+    <div class="row">
+        <span>反射数:</span>
+        <input type="range" id="reflectRange" min="1" max="20" value="8">
+        <span id="reflectVal">8</span>
+    </div>
     <div class="btn" id="resetBtn">位置リセット</div>
 </div>
 <canvas id="canvas"></canvas>
@@ -23,13 +30,23 @@
 <script>
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+const reflectRange = document.getElementById("reflectRange");
+const reflectVal = document.getElementById("reflectVal");
 let img = null;
 
 // シミュレーション状態
 let start = { x: 200, y: 500 }; 
 let target = { x: 250, y: 400 }; 
-let isDraggingStart = false; // 起点を移動中か
-let isDraggingAngle = false; // 角度を調整中か
+let maxReflections = 8;
+let isDraggingStart = false; 
+let isDraggingAngle = false; 
+
+// 反射数の変更イベント
+reflectRange.oninput = (e) => {
+    maxReflections = parseInt(e.target.value);
+    reflectVal.innerText = maxReflections;
+    draw();
+};
 
 document.getElementById("imgInput").onchange = e => {
     const file = e.target.files[0];
@@ -62,15 +79,13 @@ function resizeCanvas() {
 
 window.addEventListener('resize', () => { resizeCanvas(); draw(); });
 
-// 操作ロジック
 const handlePointerDown = (clientX, clientY) => {
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
 
-    // 起点（赤い円）に近いか判定
     const dist = Math.hypot(x - start.x, y - start.y);
-    if (dist < 30) {
+    if (dist < 40) { // スマホでも掴みやすいよう判定を少し広く
         isDraggingStart = true;
     } else {
         isDraggingAngle = true;
@@ -96,12 +111,20 @@ const handlePointerMove = (clientX, clientY) => {
     draw();
 };
 
-// タッチイベント
-canvas.addEventListener("touchstart", e => { handlePointerDown(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, {passive: false});
-canvas.addEventListener("touchmove", e => { handlePointerMove(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); }, {passive: false});
+canvas.addEventListener("touchstart", e => { 
+    if(e.target === canvas) {
+        handlePointerDown(e.touches[0].clientX, e.touches[0].clientY); 
+        e.preventDefault(); 
+    }
+}, {passive: false});
+canvas.addEventListener("touchmove", e => { 
+    if(isDraggingStart || isDraggingAngle) {
+        handlePointerMove(e.touches[0].clientX, e.touches[0].clientY); 
+        e.preventDefault(); 
+    }
+}, {passive: false});
 canvas.addEventListener("touchend", () => { isDraggingStart = false; isDraggingAngle = false; });
 
-// マウスイベント
 canvas.addEventListener("mousedown", e => handlePointerDown(e.clientX, e.clientY));
 window.addEventListener("mousemove", e => handlePointerMove(e.clientX, e.clientY));
 window.addEventListener("mouseup", () => { isDraggingStart = false; isDraggingAngle = false; });
@@ -110,13 +133,11 @@ function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-    // 反射線の計算
     let currX = start.x;
     let currY = start.y;
     let dx = target.x - start.x;
     let dy = target.y - start.y;
 
-    // 距離がゼロだと計算できないので微小値を設定
     if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) dy = -1;
 
     ctx.strokeStyle = "rgba(255, 0, 0, 0.9)";
@@ -125,7 +146,7 @@ function draw() {
     ctx.beginPath();
     ctx.moveTo(currX, currY);
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < maxReflections; i++) {
         let tX = dx > 0 ? (canvas.width - currX) / dx : (0 - currX) / dx;
         let tY = dy > 0 ? (canvas.height - currY) / dy : (0 - currY) / dy;
         let t = Math.min(tX, tY);
@@ -140,18 +161,17 @@ function draw() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 起点の描画
+    // 起点
     ctx.beginPath();
-    ctx.arc(start.x, start.y, 15, 0, Math.PI * 2);
+    ctx.arc(start.x, start.y, 18, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
     ctx.fill();
     ctx.strokeStyle = "white";
     ctx.lineWidth = 3;
     ctx.stroke();
     
-    // 中心点
     ctx.beginPath();
-    ctx.arc(start.x, start.y, 3, 0, Math.PI * 2);
+    ctx.arc(start.x, start.y, 4, 0, Math.PI * 2);
     ctx.fillStyle = "white";
     ctx.fill();
 }
